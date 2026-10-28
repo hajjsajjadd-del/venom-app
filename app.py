@@ -133,15 +133,19 @@ def request_code():
     if not pepper and not DEV_MODE: return error('تنظیم امنیتی OTP_PEPPER روی سرور تنظیم نشده است.',503)
     code=f'{secrets.randbelow(1000000):06d}'; now=int(time.time())
     digest=hashlib.sha256((phone+':'+code+pepper).encode()).hexdigest()
-    db().execute('INSERT OR REPLACE INTO otp_codes(phone,code_hash,expires_at,attempts,last_sent) VALUES(?,?,?,?,?)',(phone,digest,now+OTP_TTL,0,now)); db().commit()
-    sent,why=send_sms(phone,code)
-    if not sent:
-        if DEV_MODE and not SMS_API_KEY:
-            app.logger.warning('DEV OTP for %s: %s',phone,code)
-            return jsonify({'ok':True,'message':'حالت آزمایشی: کد فقط در لاگ سرور است. برای استفاده عمومی خاموشش کن.','development':True,'expires_in':OTP_TTL})
-        db().execute('DELETE FROM otp_codes WHERE phone=?',(phone,)); db().commit(); return error(why,503)
-    return jsonify({'ok':True,'message':'درخواست ارسال کد ثبت شد.','expires_in':OTP_TTL})
+  db().execute('INSERT OR REPLACE INTO otp_codes(phone, code_hash, expires_at, attempts, last_sent) VALUES(?, ?, ?, ?, ?)', (phone, digest, now + OTP_TTL, 0, now))
+db().commit()
 
+sent, error = send_sms(phone, code)
+if not sent:
+    if DEV_MODE and not SMS_API_KEY:
+        app.logger.warning('DEV OTP for %s: %s', phone, code)
+        return jsonify({'ok': True, 'message': f'کد تایید شما: {code}', 'development': True, 'expires_in': OTP_TTL})
+    db().execute('DELETE FROM otp_codes WHERE phone=?', (phone,))
+    db().commit()
+    return json_error(error, 503)
+
+return jsonify({'ok': True, 'message': 'اگر شماره معتبر باشد، کد تأیید ارسال شد.', 'expires_in': OTP_TTL})
 @app.post('/api/auth/verify-code')
 def verify_code():
     data=request.get_json(silent=True) or {}; phone=normalize_phone(data.get('phone')); code=str(data.get('code') or '').strip()
